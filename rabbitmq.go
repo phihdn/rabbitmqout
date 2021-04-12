@@ -2,6 +2,7 @@ package rabbitmqout
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/codec"
 	"github.com/elastic/beats/v7/libbeat/publisher"
+	"github.com/koding/logging"
+	"github.com/koding/rabbitmq"
+	"github.com/streadway/amqp"
 )
 
 func init() {
@@ -118,7 +122,7 @@ func (out *rabbitmqOutput) Publish(_ context.Context, batch publisher.Batch) err
 			continue
 		}
 
-		if _, err = out.rotator.Write(append(serializedEvent, '\n')); err != nil {
+		if err = send(serializedEvent); err != nil {
 			st.WriteError(err)
 
 			if event.Guaranteed() {
@@ -141,5 +145,59 @@ func (out *rabbitmqOutput) Publish(_ context.Context, batch publisher.Batch) err
 }
 
 func (out *rabbitmqOutput) String() string {
-	return "file(" + out.filePath + ")"
+	return "rabbitmq"
+}
+
+func send(data []byte) error {
+	rlog := logging.NewLogger("rabbit-snps-send")
+	rhost := "de02-sevan2"
+	port := 5672
+	username := "elk"
+	password := "r@bbit4elk"
+	vhost := "elk"
+	exchange := "elk-test"
+	routingKey := "elk-test-key"
+
+	rmq := rabbitmq.New(
+		&rabbitmq.Config{
+			Host:     rhost,
+			Port:     port,
+			Username: username,
+			Password: password,
+			Vhost:    vhost,
+		},
+		rlog,
+	)
+
+	rExchange := rabbitmq.Exchange{
+		Name: exchange,
+	}
+
+	queue := rabbitmq.Queue{}
+	publishingOptions := rabbitmq.PublishingOptions{
+		//Tag:        "ProducerTag",
+		RoutingKey: routingKey,
+	}
+
+	publisher, err := rmq.NewProducer(rExchange, queue, publishingOptions)
+	if err != nil {
+		panic(err)
+	}
+	defer publisher.Shutdown()
+	publisher.RegisterSignalHandler()
+
+	// may be we should autoconvert to byte array?
+	msg := amqp.Publishing{
+		DeliveryMode: 2,
+		Body:         data,
+	}
+
+	publisher.NotifyReturn(func(message amqp.Return) {
+		fmt.Println(message)
+	})
+
+	err = publisher.Publish(msg)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
