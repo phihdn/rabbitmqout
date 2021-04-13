@@ -3,6 +3,8 @@ package rabbitmqout
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -13,8 +15,6 @@ import (
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/codec"
 	"github.com/elastic/beats/v7/libbeat/publisher"
-	"github.com/koding/logging"
-	"github.com/koding/rabbitmq"
 	"github.com/streadway/amqp"
 )
 
@@ -149,8 +149,7 @@ func (out *rabbitmqOutput) String() string {
 }
 
 func send(data []byte) error {
-	rlog := logging.NewLogger("rabbit-snps-send")
-	rhost := "de02-sevan2"
+	host := "de02-sevan2"
 	port := 5672
 	username := "elk"
 	password := "r@bbit4elk"
@@ -158,46 +157,41 @@ func send(data []byte) error {
 	exchange := "elk-test"
 	routingKey := "elk-test-key"
 
-	rmq := rabbitmq.New(
-		&rabbitmq.Config{
-			Host:     rhost,
-			Port:     port,
-			Username: username,
-			Password: password,
-			Vhost:    vhost,
-		},
-		rlog,
+	connectionString := fmt.Sprintf("amqp://%s:%s@%s:%d/%s", username, url.QueryEscape(password), host, port, vhost)
+
+	conn, err := amqp.Dial(connectionString)
+	defer conn.Close()
+	failOnError(err, "Fail to connect to RabbitMQ")
+
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to open a channel")
+
+	err = ch.ExchangeDeclare(
+		exchange, // name
+		"direct", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
 	)
+	failOnError(err, "Failed to declare an exchange")
 
-	rExchange := rabbitmq.Exchange{
-		Name: exchange,
-	}
+	err = ch.Publish(
+		exchange,   //exchange
+		routingKey, //routing key
+		false,      //mandatory
+		false,      //immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        data,
+		})
+	failOnError(err, "Failed to publish a message")
+	log.Printf("Send a msg: %s", string(data))
+}
 
-	queue := rabbitmq.Queue{}
-	publishingOptions := rabbitmq.PublishingOptions{
-		//Tag:        "ProducerTag",
-		RoutingKey: routingKey,
-	}
-
-	publisher, err := rmq.NewProducer(rExchange, queue, publishingOptions)
+func failOnError(err error, msg string) {
 	if err != nil {
-		panic(err)
-	}
-	defer publisher.Shutdown()
-	publisher.RegisterSignalHandler()
-
-	// may be we should autoconvert to byte array?
-	msg := amqp.Publishing{
-		DeliveryMode: 2,
-		Body:         data,
-	}
-
-	publisher.NotifyReturn(func(message amqp.Return) {
-		fmt.Println(message)
-	})
-
-	err = publisher.Publish(msg)
-	if err != nil {
-		fmt.Println(err)
+		log.Fatalf("%s: %s", msg, err)
 	}
 }
