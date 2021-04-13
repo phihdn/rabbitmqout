@@ -188,6 +188,7 @@ func send(data []byte) error {
 		})
 	failOnError(err, "Failed to publish a message")
 	log.Printf("Send a msg: %s", string(data))
+	return nil
 }
 
 func failOnError(err error, msg string) {
