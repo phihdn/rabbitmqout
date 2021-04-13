@@ -130,9 +130,9 @@ func (out *rabbitmqOutput) Publish(_ context.Context, batch publisher.Batch) err
 			st.WriteError(err)
 
 			if event.Guaranteed() {
-				out.log.Errorf("Writing event to file failed with: %+v", err)
+				out.log.Errorf("Sending event to RabbitMQ failed with: %+v", err)
 			} else {
-				out.log.Warnf("Writing event to file failed with: %+v", err)
+				out.log.Warnf("Sending event to RabbitMQ failed with: %+v", err)
 			}
 
 			dropped++
